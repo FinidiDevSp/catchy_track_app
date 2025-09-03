@@ -1,0 +1,29 @@
+# Variables de entorno para VS Code REST Client
+@baseUrl = http://127.0.0.1:8000
+@sandboxPath = ./sandbox
+
+### Health check
+GET {{baseUrl}}/healthz
+
+### Procesar carpetas (ALLOW)
+# Procesa las subcarpetas dentro de {{sandboxPath}}.
+# Por defecto, el proyecto permite rutas dentro de ./sandbox
+# y eliminará las subcarpetas válidas encontradas.
+POST {{baseUrl}}/api/v1/folders/process
+Content-Type: application/json
+
+{
+  "action": "ALLOW",
+  "path": "{{sandboxPath}}"
+}
+
+### Procesar carpetas (DENY)
+# Igual que el anterior, pero registrando la acción como DENY.
+POST {{baseUrl}}/api/v1/folders/process
+Content-Type: application/json
+
+{
+  "action": "DENY",
+  "path": "{{sandboxPath}}"
+}
+

@@ -2,18 +2,21 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "FastAPI (uvicorn) — debug",
-      "type": "python",
+      "name": "FastAPI (uvicorn) debug",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
         "app.main:app",
         "--reload",
         "--host",
-        "0.0.0.0",
+        "127.0.0.1",
         "--port",
-        "8000"
+        "8000",
+        "--log-level",
+        "info"
       ],
+      "console": "integratedTerminal",
       "jinja": true,
       "envFile": "${workspaceFolder}/.env"
     }
