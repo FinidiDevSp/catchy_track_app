@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+
+# Envs
+.env
+.venv/
+venv/
+
+# VS Code
+.vscode/*.log
+.vscode/*.tmp
+
+# Data
+data/*.db
+data/*.sqlite3
+data/*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
