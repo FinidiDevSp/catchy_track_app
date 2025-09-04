@@ -1,0 +1,12 @@
+{
+  "app_name": "Catchy Track App",
+  "debug": true,
+  "database_url": "sqlite:///data/app.db",
+  "allowed_roots": "./sandbox",
+  "log_level": "INFO",
+  "api_key": "dev-key",
+  "auth_enabled": true,
+  "cors_origins": "*",
+  "allowed_hosts": "127.0.0.1,localhost"
+}
+

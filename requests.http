@@ -1,5 +1,6 @@
 # Variables de entorno para VS Code REST Client
 @baseUrl = http://127.0.0.1:8000
+@apiKey = dev-key
 @sandboxPath = ./sandbox
 
 ### Health check
@@ -11,6 +12,7 @@ GET {{baseUrl}}/healthz
 # y eliminará las subcarpetas válidas encontradas.
 POST {{baseUrl}}/api/v1/folders/process
 Content-Type: application/json
+X-API-Key: {{apiKey}}
 
 {
   "action": "ALLOW",
@@ -21,9 +23,9 @@ Content-Type: application/json
 # Igual que el anterior, pero registrando la acción como DENY.
 POST {{baseUrl}}/api/v1/folders/process
 Content-Type: application/json
+X-API-Key: {{apiKey}}
 
 {
   "action": "DENY",
   "path": "{{sandboxPath}}"
 }
-

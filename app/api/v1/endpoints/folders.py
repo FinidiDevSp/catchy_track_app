@@ -30,8 +30,8 @@ class ProcessResult(BaseModel):
     saved_count: int
     deleted_count: int
     skipped_count: int
-    errors: List[Dict[str, str]] = []
-    skipped: List[str] = []
+    errors: List[Dict[str, str]] = Field(default_factory=list)
+    skipped: List[str] = Field(default_factory=list)
     duration_ms: int
 
 

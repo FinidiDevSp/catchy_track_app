@@ -14,11 +14,47 @@
         "--port",
         "8000",
         "--log-level",
-        "info"
+        "debug"
       ],
       "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "subProcess": true,
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
       "jinja": true,
       "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "FastAPI (uvicorn) debug (no reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--log-level",
+        "debug"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "jinja": true,
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "Attach to FastAPI (debugpy:5678)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 5678
+      },
+      "justMyCode": true
     }
   ]
 }
