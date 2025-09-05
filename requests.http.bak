@@ -30,16 +30,3 @@ X-API-Key: {{apiKey}}
   "path": "{{sandboxPath}}"
 }
 
-### Scrape 1001Tracklists para DJs configurados
-GET {{baseUrl}}/api/v1/tracklists/1001/scrape
-X-API-Key: {{apiKey}}
-
-
-### Scrape extractor por defecto
-GET {{baseUrl}}/api/v1/tracklist_extractor/scrape
-X-API-Key: {{apiKey}}
-
-### Scrape extractor con limite e ignorando last_title implicitamente
-GET {{baseUrl}}/api/v1/tracklist_extractor/scrape?limit=5
-X-API-Key: {{apiKey}}
-

@@ -1,0 +1,35 @@
+{
+  "djs": [
+    {
+      "id": "tiesto",
+      "name": "Tiësto",
+      "last_title": "Tiësto @ HQ2 Beachclub Atlantic City, United States"
+    },
+    {
+      "id": "martingarrix",
+      "name": "Martin Garrix",
+      "last_title": "Martin Garrix - The Martin Garrix Show 573"
+    },
+    {
+      "id": "arminvanbuuren",
+      "name": "Armin van Buuren",
+      "last_title": "Armin van Buuren & Ruben de Ronde & Ferry Corsten - A State Of Trance 1241"
+    },
+    {
+      "id": "hardwell",
+      "name": "Hardwell",
+      "last_title": "Hardwell @ APEX Stage, Creamfields North, United Kingdom"
+    }
+  ],
+  "scrape": {
+    "headless": false,
+    "timeout": 20.0,
+    "delay_seconds": [
+      0.6,
+      1.6
+    ],
+    "proxy": null,
+    "cookies": {},
+    "user_agent": null
+  }
+}
