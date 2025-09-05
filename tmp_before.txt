@@ -58,25 +58,11 @@ class TracklistEntry:
 
 
 @dataclass
-class TracklistDetail:
-    title: str
-    url: str
-    songs: List["SongEntry"]
-
-
-@dataclass
 class DJResult:
     id: str
     name: str
-    tracklists: List[TracklistDetail]
+    tracklists: List[TracklistEntry]
     error: Optional[str] = None
-
-
-@dataclass
-class SongEntry:
-    artist: str
-    title: str
-    label: str
 
 
 def _load_config(path: Path) -> tuple[List[DJConfig], ScrapeOptions, dict]:
@@ -246,113 +232,6 @@ def _scrape_items_for_dj(
     return results
 
 
-def _scrape_songs_from_tracklist(
-    driver: webdriver.Chrome, url: str, *, timeout: float
-) -> tuple[str, List[SongEntry]]:
-    driver.get(url)
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "#tlTab, div.bCont.tl, meta[property='og:title']")
-            )
-        )
-    except Exception:
-        pass
-
-    html = driver.page_source
-    if _is_captcha(html):
-        raise RuntimeError("CAPTCHA detected or anti-bot page (tracklist)")
-
-    # Title of the tracklist
-    tl_title = None
-    try:
-        meta = driver.find_element(By.CSS_SELECTOR, "meta[property='og:title']")
-        tl_title = (meta.get_attribute("content") or "").strip()
-    except Exception:
-        tl_title = driver.title or url
-
-    # Extract track rows
-    songs: List[SongEntry] = []
-    rows = driver.find_elements(By.CSS_SELECTOR, "div.bCont.tl")
-    for row in rows:
-        try:
-            name_val = ""
-            try:
-                name_meta = row.find_element(By.CSS_SELECTOR, 'meta[itemprop="name"]')
-                name_val = (name_meta.get_attribute("content") or "").strip()
-            except Exception:
-                # Fallback: try span with itemprop name
-                try:
-                    name_span = row.find_element(By.CSS_SELECTOR, 'span[itemprop="name"]')
-                    name_val = (name_span.text or "").strip()
-                except Exception:
-                    name_val = ""
-
-            # Try to get artists from semantic elements first
-            artist_parts: List[str] = []
-            try:
-                artist_els = row.find_elements(
-                    By.CSS_SELECTOR, 'a[itemprop="byArtist"], span[itemprop="byArtist"]'
-                )
-                for el in artist_els:
-                    txt = (el.text or "").strip()
-                    if txt:
-                        artist_parts.append(txt)
-            except Exception:
-                pass
-            # Deduplicate preserving order
-            seen = set()
-            artist_parts_unique = []
-            for a in artist_parts:
-                if a not in seen:
-                    seen.add(a)
-                    artist_parts_unique.append(a)
-
-            label_text = ""
-            try:
-                pub_el = row.find_element(By.CSS_SELECTOR, 'meta[itemprop="publisher"]')
-                pub_html = (pub_el.get_attribute("content") or "").strip()
-                pub_text = re.sub(r"<[^>]+>", "", pub_html).strip()
-                # remove surrounding brackets if present
-                pub_text = re.sub(r"^[\[\(\{\s]+|[\]\)\}\s]+$", "", pub_text)
-                label_text = pub_text
-            except Exception:
-                label_text = ""
-            if not label_text and name_val:
-                m = re.search(r"\[(.*?)\]\s*$", name_val)
-                if m:
-                    label_text = m.group(1).strip()
-
-            # Heuristics to split artist and title
-            artist_joined = ", ".join(artist_parts_unique)
-            title_candidate = name_val
-            # If the name contains a label suffix like ' [Label]',
-            # strip it (we captured label above)
-            title_candidate = re.sub(r"\s*\[.*?\]\s*$", "", title_candidate).strip()
-            if not artist_joined and " - " in title_candidate:
-                # Split at first hyphen occurrence
-                parts = title_candidate.split(" - ", 1)
-                artist_joined = parts[0].strip()
-                title_candidate = parts[1].strip() if len(parts) > 1 else title_candidate
-            else:
-                # If the title starts with '<artist> - ', strip prefix
-                for prefix in ([artist_joined] + artist_parts_unique) if artist_joined else []:
-                    if prefix and title_candidate.startswith(prefix + " - "):
-                        title_candidate = title_candidate[len(prefix) + 3 :].strip()
-                        break
-
-            artist_final = artist_joined
-            title_final = title_candidate
-            # As a last resort, if both empty, skip
-            if not title_final and not artist_final:
-                continue
-            songs.append(SongEntry(artist=artist_final, title=title_final, label=label_text))
-        except Exception:
-            continue
-
-    return tl_title, songs
-
-
 def scrape_all_from_config(config_path: Path, *, limit: Optional[int] = None) -> List[DJResult]:
     djs, options, raw_cfg = _load_config(config_path)
     if not djs:
@@ -396,26 +275,7 @@ def scrape_all_from_config(config_path: Path, *, limit: Optional[int] = None) ->
                 if src_obj is not None and new_last:
                     src_obj["last_title"] = new_last
 
-                # For each selected tracklist, fetch its songs
-                details: List[TracklistDetail] = []
-                for entry in filtered:
-                    try:
-                        tl_title, songs = _scrape_songs_from_tracklist(
-                            driver, entry.url, timeout=options.timeout
-                        )
-                        title_final = tl_title or entry.title
-                        details.append(
-                            TracklistDetail(title=title_final, url=entry.url, songs=songs)
-                        )
-                        time.sleep(random.uniform(options.delay_min, options.delay_max))
-                    except Exception as sub_e:  # noqa: BLE001
-                        details.append(
-                            TracklistDetail(
-                                title=entry.title, url=entry.url, songs=[f"ERROR: {sub_e}"]
-                            )
-                        )
-
-                results.append(DJResult(id=dj.id, name=dj.name, tracklists=details))
+                results.append(DJResult(id=dj.id, name=dj.name, tracklists=filtered))
             except Exception as e:  # noqa: BLE001
                 results.append(DJResult(id=dj.id, name=dj.name, tracklists=[], error=str(e)))
         # Persist updated config (with refreshed last_title per DJ)
@@ -438,7 +298,6 @@ __all__ = [
     "DJConfig",
     "ScrapeOptions",
     "DJResult",
-    "SongEntry",
-    "TracklistDetail",
     "scrape_all_from_config",
 ]
+

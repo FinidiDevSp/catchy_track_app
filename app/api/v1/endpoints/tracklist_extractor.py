@@ -15,9 +15,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["tracklist-extractor"])
 
 
+class SongInfo(BaseModel):
+    artist: str
+    title: str
+    label: str
+
+
 class TracklistInfo(BaseModel):
     title: str
     url: str
+    songs: List[SongInfo]
 
 
 class Tracklists1001Item(BaseModel):
@@ -58,6 +65,13 @@ async def scrape_1001_tracklists(limit: int | None = None) -> Tracklists1001Resp
 
     items = []
     for r in results:
-        tracklists = [TracklistInfo(title=e.title, url=e.url) for e in r.tracklists]
+        tracklists = [
+            TracklistInfo(
+                title=e.title,
+                url=e.url,
+                songs=[SongInfo(artist=s.artist, title=s.title, label=s.label) for s in e.songs],
+            )
+            for e in r.tracklists
+        ]
         items.append(Tracklists1001Item(id=r.id, name=r.name, tracklists=tracklists, error=r.error))
     return Tracklists1001Response(ok=True, count=len(items), items=items)
