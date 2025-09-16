@@ -19,11 +19,18 @@ class SongInfo(BaseModel):
     artist: str
     title: str
     label: str
+    position: int | None = None
+    timecode: str | None = None
+    beatport_url: str | None = None
 
 
 class TracklistInfo(BaseModel):
     title: str
     url: str
+    date: str | None = None
+    event: str | None = None
+    venue: str | None = None
+    city: str | None = None
     songs: List[SongInfo]
 
 
@@ -56,22 +63,36 @@ async def scrape_1001_tracklists(limit: int | None = None) -> Tracklists1001Resp
 
     try:
         # Run Selenium (blocking) in a worker thread
-        results: List[DJResult] = await asyncio.to_thread(
-            scrape_all_from_config, config_path, limit=limit
-        )
+        results: List[DJResult] = await asyncio.to_thread(scrape_all_from_config, config_path, limit=limit)
     except Exception as e:  # noqa: BLE001
         logger.exception("Unexpected error scraping 1001Tracklists")
         raise HTTPException(status_code=500, detail=str(e))
 
     items = []
     for r in results:
-        tracklists = [
-            TracklistInfo(
-                title=e.title,
-                url=e.url,
-                songs=[SongInfo(artist=s.artist, title=s.title, label=s.label) for s in e.songs],
+        tracklists = []
+        for e in r.tracklists:
+            songs = [
+                SongInfo(
+                    artist=s.artist,
+                    title=s.title,
+                    label=s.label,
+                    position=getattr(s, "position", None),
+                    timecode=getattr(s, "timecode", None),
+                    beatport_url=getattr(s, "beatport_url", None),
+                )
+                for s in e.songs
+            ]
+            tracklists.append(
+                TracklistInfo(
+                    title=e.title,
+                    url=e.url,
+                    date=e.date,
+                    event=e.event,
+                    venue=e.venue,
+                    city=e.city,
+                    songs=songs,
+                )
             )
-            for e in r.tracklists
-        ]
         items.append(Tracklists1001Item(id=r.id, name=r.name, tracklists=tracklists, error=r.error))
     return Tracklists1001Response(ok=True, count=len(items), items=items)

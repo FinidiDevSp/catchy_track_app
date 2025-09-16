@@ -4,7 +4,7 @@ import json
 import random
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -19,18 +19,11 @@ BASE_URL = "https://www.1001tracklists.com"
 
 USER_AGENTS = [
     # Chrome en Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36 (KHTML, like Gecko) " "Chrome/125.0.0.0 Safari/537.36",
     # Chrome en macOS
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_0) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_0) " "AppleWebKit/537.36 (KHTML, like Gecko) " "Chrome/125.0.0.0 Safari/537.36",
     # Edge en Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36 "
-    "Edg/125.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " "AppleWebKit/537.36 (KHTML, like Gecko) " "Chrome/125.0.0.0 Safari/537.36 " "Edg/125.0.0.0",
 ]
 
 
@@ -61,7 +54,11 @@ class TracklistEntry:
 class TracklistDetail:
     title: str
     url: str
-    songs: List["SongEntry"]
+    date: Optional[str] = None
+    event: Optional[str] = None
+    venue: Optional[str] = None
+    city: Optional[str] = None
+    songs: List["SongEntry"] = field(default_factory=list)
 
 
 @dataclass
@@ -77,6 +74,9 @@ class SongEntry:
     artist: str
     title: str
     label: str
+    position: Optional[int] = None
+    timecode: Optional[str] = None
+    beatport_url: Optional[str] = None
 
 
 def _load_config(path: Path) -> tuple[List[DJConfig], ScrapeOptions, dict]:
@@ -185,15 +185,11 @@ def _apply_cookies(driver: webdriver.Chrome, cookies: Dict[str, str]) -> None:
             pass
 
 
-def _scrape_items_for_dj(
-    driver: webdriver.Chrome, dj_id: str, *, timeout: float
-) -> List[TracklistEntry]:
+def _scrape_items_for_dj(driver: webdriver.Chrome, dj_id: str, *, timeout: float) -> List[TracklistEntry]:
     url = f"{BASE_URL}/dj/{dj_id}/index.html"
     driver.get(url)
     try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.bItm.oItm, div.bTitle"))
-        )
+        WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.bItm.oItm, div.bTitle")))
     except Exception:
         # Continue; we'll still try to parse whatever loaded
         pass
@@ -246,16 +242,10 @@ def _scrape_items_for_dj(
     return results
 
 
-def _scrape_songs_from_tracklist(
-    driver: webdriver.Chrome, url: str, *, timeout: float
-) -> tuple[str, List[SongEntry]]:
+def _scrape_songs_from_tracklist(driver: webdriver.Chrome, url: str, *, timeout: float) -> TracklistDetail:
     driver.get(url)
     try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "#tlTab, div.bCont.tl, meta[property='og:title']")
-            )
-        )
+        WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.CSS_SELECTOR, "#tlTab, div.bCont.tl, meta[property='og:title']")))
     except Exception:
         pass
 
@@ -271,11 +261,191 @@ def _scrape_songs_from_tracklist(
     except Exception:
         tl_title = driver.title or url
 
+    # Metadata: date, event, venue, city
+    date_text: Optional[str] = None
+    event_text: Optional[str] = None
+    venue_text: Optional[str] = None
+    city_text: Optional[str] = None
+
+    # Try structured metadata for date
+    try:
+        date_meta = driver.find_element(By.CSS_SELECTOR, 'meta[itemprop="startDate"]')
+        date_text = (date_meta.get_attribute("content") or "").strip() or None
+    except Exception:
+        # Newer layout: TL date lives inside a summary tab with pairs of labels/values
+        # Example block:
+        # <div class="sTab c2 cM">
+        #   <div title="tracklist recording date">TL date</div>
+        #   <div>Sat, Aug 30 2025</div>
+        #   ...
+        # </div>
+        try:
+            # First, try adjacent sibling to the label with the specific title
+            tl_date_vals = driver.find_elements(
+                By.CSS_SELECTOR,
+                "div.sTab.c2.cM div[title='tracklist recording date'] + div",
+            )
+            if tl_date_vals:
+                date_text = (tl_date_vals[0].text or "").strip() or None
+        except Exception:
+            pass
+        if not date_text:
+            # Fallback: iterate the children of the summary tab and pick value after 'TL date'
+            try:
+                tab = driver.find_element(By.CSS_SELECTOR, "div.sTab.c2.cM")
+                children = tab.find_elements(By.XPATH, "./div")
+                for i, el in enumerate(children):
+                    label_txt = ((el.get_attribute("title") or el.text) or "").strip().lower()
+                    if label_txt in (
+                        "tracklist recording date",
+                        "tl date",
+                        "tracklist date",
+                    ):
+                        if i + 1 < len(children):
+                            date_text = (children[i + 1].text or "").strip() or None
+                            break
+            except Exception:
+                pass
+        if not date_text:
+            # Last resort: regex over raw HTML looking for the TL date label/value pair
+            m = re.search(
+                r"<div[^>]*title=\"tracklist recording date\"[^>]*>.*?</div>\s*<div>\s*([^<]+?)\s*</div>",
+                html,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if m:
+                date_text = m.group(1).strip()
+        if not date_text:
+            # Very last fallback: look for itemprop time element if present
+            try:
+                time_el = driver.find_element(By.CSS_SELECTOR, 'time[itemprop="startDate"]')
+                date_text = (time_el.get_attribute("datetime") or time_el.text or "").strip() or None
+            except Exception:
+                m2 = re.search(r"itemprop=\"startDate\"[^>]*content=\"([^\"]+)\"", html)
+                if m2:
+                    date_text = m2.group(1).strip()
+
+    # Links for event/venue/city
+    try:
+        ev = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/event/"]')
+        if ev:
+            event_text = (ev[0].text or "").strip() or None
+    except Exception:
+        pass
+    try:
+        ve = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/venue/"]')
+        if ve:
+            venue_text = (ve[0].text or "").strip() or None
+    except Exception:
+        pass
+    try:
+        ci = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/city/"]')
+        if ci:
+            city_text = (ci[0].text or "").strip() or None
+    except Exception:
+        pass
+
     # Extract track rows
     songs: List[SongEntry] = []
-    rows = driver.find_elements(By.CSS_SELECTOR, "div.bCont.tl")
-    for row in rows:
+    # Parent containers hold position and Beatport; child 'div.bCont.tl' holds artist/title
+    pairs: List[tuple] = []  # (container, info_row)
+    try:
+        containers = driver.find_elements(By.CSS_SELECTOR, "div[id*='tlp']")
+        for cont in containers:
+            try:
+                info_row = cont.find_element(By.CSS_SELECTOR, "div.bCont.tl")
+                pairs.append((cont, info_row))
+            except Exception:
+                continue
+    except Exception:
+        containers = []
+    if not pairs:
+        # Fallback to older approach
         try:
+            rows = driver.find_elements(By.CSS_SELECTOR, "div.bCont.tl")
+            pairs = [(row, row) for row in rows]
+        except Exception:
+            pairs = []
+
+    for container, row in pairs:
+        try:
+            # ver el valor de row
+            roval = (row.get_attribute("outerHTML") or "").strip()
+            print(f"Row HTML: {roval[:200]}...")  # Debug output, limit length
+            # Position: look specifically inside the bPlay block within the row.
+            # Also detect special non-numeric markers like 'W/' indicating a mashup line.
+            pos_val: Optional[int] = None
+            mashup_with_prev: bool = False
+            try:
+                # First, try the current layout: the play/position area
+                bplay = None
+                try:
+                    bplay = container.find_element(By.CSS_SELECTOR, "div.bPlay")
+                except Exception:
+                    bplay = None
+                if bplay is not None:
+                    for c in bplay.find_elements(By.CSS_SELECTOR, "span"):
+                        txt = (c.text or "").strip()
+                        if not txt:
+                            continue
+                        if re.search(r"(?i)\bw\s*/", txt):
+                            mashup_with_prev = True
+                        mpos = re.search(r"(\d{1,3})", txt)
+                        if mpos:
+                            pos_val = int(mpos.group(1))
+                            break
+                # If no numeric pos found and not explicitly a mashup from bPlay,
+                # fall back to older selectors or textual prefixes within the row
+                if pos_val is None and not mashup_with_prev:
+                    for c in container.find_elements(
+                        By.CSS_SELECTOR,
+                        'span[id*="tlp"], span.tlNum, span.ptNum, div.bPos, div.tlRow__pos, div.bTL__nr',
+                    ):
+                        txt = (c.text or "").strip()
+                        mpos = re.match(r"^(\d{1,3})\.?$", txt) or re.search(r"(\d{1,3})", txt)
+                        if mpos:
+                            pos_val = int(mpos.group(1))
+                            break
+                if pos_val is None and not mashup_with_prev:
+                    mpos2 = re.match(r"\s*(\d{1,3})[\.:]\s", (container.text or row.text))
+                    if mpos2:
+                        pos_val = int(mpos2.group(1))
+            except Exception:
+                pos_val = None
+
+            # Timecode via div[id*="cue"]
+            timecode_val: Optional[str] = None
+            try:
+                # Prefer container, then fallback to row
+                scopes = [container, row]
+                for scope in scopes:
+                    try:
+                        for c in scope.find_elements(By.CSS_SELECTOR, 'div[id*="cue"]'):
+                            txt = (c.text or "").strip()
+                            mtime = re.search(r"\b(\d{1,2}:\d{2}(?::\d{2})?)\b", txt)
+                            if mtime:
+                                timecode_val = mtime.group(1)
+                                break
+                        if timecode_val:
+                            break
+                    except Exception:
+                        continue
+                if not timecode_val:
+                    # fallback: try known time span classes
+                    for selector in ["span.tTime", "span.time", "span.tlTime"]:
+                        els = container.find_elements(By.CSS_SELECTOR, selector) or row.find_elements(By.CSS_SELECTOR, selector)
+                        if els:
+                            ttxt = (els[0].text or "").strip()
+                            if ttxt:
+                                timecode_val = ttxt
+                                break
+                    if not timecode_val:
+                        mtime = re.search(r"\b(\d{1,2}:\d{2}(?::\d{2})?)\b", (container.text or row.text))
+                        if mtime:
+                            timecode_val = mtime.group(1)
+            except Exception:
+                timecode_val = None
+
             name_val = ""
             try:
                 name_meta = row.find_element(By.CSS_SELECTOR, 'meta[itemprop="name"]')
@@ -291,9 +461,7 @@ def _scrape_songs_from_tracklist(
             # Try to get artists from semantic elements first
             artist_parts: List[str] = []
             try:
-                artist_els = row.find_elements(
-                    By.CSS_SELECTOR, 'a[itemprop="byArtist"], span[itemprop="byArtist"]'
-                )
+                artist_els = row.find_elements(By.CSS_SELECTOR, 'a[itemprop="byArtist"], span[itemprop="byArtist"]')
                 for el in artist_els:
                     txt = (el.text or "").strip()
                     if txt:
@@ -341,16 +509,112 @@ def _scrape_songs_from_tracklist(
                         title_candidate = title_candidate[len(prefix) + 3 :].strip()
                         break
 
+            # Beatport link: click shopping cart in parent container to reveal embed, then read link
+            beatport_url: Optional[str] = None
+            try:
+                icon = None
+                try:
+                    icon = container.find_element(By.CSS_SELECTOR, "i.fa-shopping-cart")
+                except Exception:
+                    try:
+                        icon = row.find_element(By.CSS_SELECTOR, "i.fa-shopping-cart")
+                    except Exception:
+                        icon = None
+                clickable = None
+                try:
+                    clickable = icon.find_element(By.XPATH, "./ancestor::*[self::a or self::button][1]")
+                except Exception:
+                    clickable = icon
+                try:
+                    driver.execute_script('arguments[0].scrollIntoView({block:"center"});', clickable)
+                except Exception:
+                    pass
+                try:
+                    clickable.click()
+                except Exception:
+                    try:
+                        driver.execute_script("arguments[0].click();", clickable)
+                    except Exception:
+                        pass
+                # Wait briefly for embed to appear within row or globally
+                end_ts = time.time() + 2.5
+                while time.time() < end_ts and not beatport_url:
+                    embeds = row.find_elements(By.CSS_SELECTOR, "div.beatport-embed")
+                    if not embeds:
+                        embeds = driver.find_elements(By.CSS_SELECTOR, "div.beatport-embed")
+                    found = None
+                    for emb in embeds:
+                        if emb.is_displayed():
+                            found = emb
+                            break
+                    if found is not None:
+                        # Link in anchor or iframe
+                        link = None
+                        try:
+                            link = found.find_element(By.CSS_SELECTOR, 'a[href*="beatport.com"]')
+                            beatport_url = (link.get_attribute("href") or "").strip() or None
+                        except Exception:
+                            try:
+                                iframe = found.find_element(By.CSS_SELECTOR, 'iframe[src*="beatport"]')
+                                beatport_url = (iframe.get_attribute("src") or "").strip() or None
+                            except Exception:
+                                pass
+                        if beatport_url:
+                            break
+                    if not beatport_url:
+                        time.sleep(0.15)
+            except Exception:
+                beatport_url = None
+
             artist_final = artist_joined
             title_final = title_candidate
+
+            # If this row is a mashup indicator (W/), merge with previous song instead of adding a new one
+            if mashup_with_prev and songs:
+                prev = songs[-1]
+                # Merge artists, avoiding duplicates and empty parts
+                prev_artists = [p.strip() for p in re.split(r"\s*[,&xX\+]+\s*", prev.artist) if p.strip()] if prev.artist else []
+                cur_artists = [p.strip() for p in re.split(r"\s*[,&xX\+]+\s*", artist_final) if p.strip()] if artist_final else []
+                combined_artists: List[str] = []
+                for a in prev_artists + cur_artists:
+                    if a and a not in combined_artists:
+                        combined_artists.append(a)
+                if combined_artists:
+                    prev.artist = " & ".join(combined_artists)
+
+                # Merge titles using ' W/ ' to reflect the mashup
+                if prev.title and title_final:
+                    prev.title = f"{prev.title} W/ {title_final}"
+                elif title_final and not prev.title:
+                    prev.title = title_final
+                # Keep previous label/position/time/beatport
+                # Skip appending a new entry for mashup continuation
+                continue
             # As a last resort, if both empty, skip
             if not title_final and not artist_final:
                 continue
-            songs.append(SongEntry(artist=artist_final, title=title_final, label=label_text))
+            songs.append(
+                SongEntry(
+                    artist=artist_final,
+                    title=title_final,
+                    label=label_text,
+                    position=pos_val,
+                    timecode=timecode_val,
+                    beatport_url=beatport_url,
+                )
+            )
         except Exception:
             continue
 
-    return tl_title, songs
+    return TracklistDetail(
+        title=tl_title or url,
+        url=url,
+        date=date_text,
+        event=event_text,
+        venue=venue_text,
+        city=city_text,
+        songs=songs,
+    )
 
 
 def scrape_all_from_config(config_path: Path, *, limit: Optional[int] = None) -> List[DJResult]:
@@ -400,18 +664,21 @@ def scrape_all_from_config(config_path: Path, *, limit: Optional[int] = None) ->
                 details: List[TracklistDetail] = []
                 for entry in filtered:
                     try:
-                        tl_title, songs = _scrape_songs_from_tracklist(
-                            driver, entry.url, timeout=options.timeout
-                        )
-                        title_final = tl_title or entry.title
-                        details.append(
-                            TracklistDetail(title=title_final, url=entry.url, songs=songs)
-                        )
+                        detail = _scrape_songs_from_tracklist(driver, entry.url, timeout=options.timeout)
+                        if not detail.title:
+                            detail.title = entry.title
+                        details.append(detail)
                         time.sleep(random.uniform(options.delay_min, options.delay_max))
                     except Exception as sub_e:  # noqa: BLE001
                         details.append(
                             TracklistDetail(
-                                title=entry.title, url=entry.url, songs=[f"ERROR: {sub_e}"]
+                                title=entry.title,
+                                url=entry.url,
+                                date=None,
+                                event=None,
+                                venue=None,
+                                city=None,
+                                songs=[SongEntry(artist="", title=f"ERROR: {sub_e}", label="")],
                             )
                         )
 
@@ -420,9 +687,7 @@ def scrape_all_from_config(config_path: Path, *, limit: Optional[int] = None) ->
                 results.append(DJResult(id=dj.id, name=dj.name, tracklists=[], error=str(e)))
         # Persist updated config (with refreshed last_title per DJ)
         try:
-            config_path.write_text(
-                json.dumps(raw_cfg, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
+            config_path.write_text(json.dumps(raw_cfg, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
             # Non-fatal if we fail to persist
             pass
